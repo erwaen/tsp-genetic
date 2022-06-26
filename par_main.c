@@ -219,7 +219,20 @@ void printInd(Individual a)
 {
 
 	for (int i=0; i<CITIES; i++) cout << a.route[i] << "->";
-
+	
+	int estanTodos = 1;
+	for (int i = 0; i <CITIES; i++){
+		estanTodos = 0;
+		for (int j = 0; j< CITIES; j++){
+			if (a.route[j] == i){
+				estanTodos = 1;
+			}
+		} 
+		if (estanTodos == 0 ){
+			printf("NO ESTA %d\n", i);
+			
+		}
+	}
 }
 
 void printPop(Population p)
@@ -299,8 +312,8 @@ void evolve(Population &p)
 
 			}
 			sort(p);
-
-				#	pragma omp parallel for num_threads(thread_count)
+				
+				// #	pragma omp parallel for num_threads(thread_count)
 				for (int i=0; i<POP_SIZE/2; i++)
 				{
 					for (int j=0; j<POP_SIZE/2; j++)
@@ -316,7 +329,7 @@ void evolve(Population &p)
 
 
 
-			//printInd(p.pop[0]);
+			printInd(p.pop[0]);
 			cout << " | GEN: " << g << "  | F=" << fitness(p.pop[0]) << endl << endl;
 
 			g+= 1;
@@ -412,7 +425,7 @@ int main(int argc, char **argv)
 		{
 			//printf("indi[%d].fitness: %d\n",k,indi[k].fitness);
 			//cout << endl << "indi[k]: " << indi[k] << endl;
-			ins = (rand()%(CITIES+1));
+			ins = (rand()%(CITIES));
 			//printf("ins: %d\n",ins);
 			//cout << endl <<"ins: "<< ins << endl;
 			for (int j=0; j<CITIES; j++) if (!inList (indi[k], ins)) indi[k].route[getFreeIndex(indi[k])]=ins;
