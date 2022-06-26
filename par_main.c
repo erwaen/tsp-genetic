@@ -19,6 +19,8 @@ void printInd(Individual a);
 void printPop(Population p);
 void evolve(Population &p);
 
+int thread_count=1;
+
 // =============================================================================
 // EVOLUTION
 
@@ -57,6 +59,7 @@ Individual crossoverPm (Individual a, Individual b)
 	return c;
 }
 
+// cruce entre 2 lineas y retorna la linea cruzada
 Individual crossoverInj (Individual a, Individual b)
 {
 	int q = rand()%CITIES/3;
@@ -83,7 +86,7 @@ Individual crossoverInj (Individual a, Individual b)
 	{
 		if (!inList(ab, b.route[n])) c.route[n]=b.route[n];
 	}
-
+	
 	for (int h=q+1; h<(y-x); h++) c.route[h]=a.route[h];
 
 		for (int i=0; i<CITIES; i++)
@@ -131,33 +134,59 @@ void mutate(Individual &a)
 
 void mutatePop(Population &p)
 {
-	int flip;
+	double startTime1 = omp_get_wtime();
+	#pragma omp parallel for num_threads(thread_count)
 	for (int i=0; i<POP_SIZE; i++)
 	{
+		printf("i= %d %d\n",i, omp_get_thread_num());
 		if (MUTATION_TYPE==0) mutate(p.pop[i]); else mutateW(p.pop[i]);
 	}
+	double endTime1 = omp_get_wtime();
+
+	printf("TIME: %fs\n",(endTime1-startTime1));
 }
 
+
+// Calcula el costo total de llegar desde primera ciudad que tiene en sus 512 ciudades
+// hasta la ultima + la vuelta desde la ultima hasta la primera
 int fitness(Individual a)
 {
-
-	int xd=0;
+	
+	int  xd=0;
 	int yd=0;
 	int d=0;
-	for (int i=0; i<CITIES-1; i++)
+	
+	int h = 0;
+	#pragma omp parallel num_threads(thread_count) private(h,xd,yd) shared(d)
 	{
-		xd = map[a.route[i]].x - map[a.route[i+1]].x;
-		yd = map[a.route[i]].y - map[a.route[i+1]].y;
-		 d = d+(int)(sqrt(xd*xd + yd*yd)+0.5);
+		#pragma omp for
+		for (int i=0; i<CITIES-1; i++)
+		{	
+			xd = map[a.route[i]].x - map[a.route[i+1]].x;
+			yd = map[a.route[i]].y - map[a.route[i+1]].y;
+			h = h+(int)(sqrt((xd*xd) + (yd*yd)));
+		}
+
+		#pragma omp critical 
+		{	
+			
+			d += h;
+			
+		}
+		
+
 
 	}
+	
 	xd=map[a.route[CITIES-1]].x - map[a.route[0]].x;
 	yd=map[a.route[CITIES-1]].y - map[a.route[0]].y;
-	d = d+(int)(sqrt(xd*xd + yd*yd)+0.5);
-
+	d = d+(int)(sqrt((xd*xd) + (yd*yd)));
+	
 	return d;
+
 }
 
+// Ordena entre los population el que tiene menor fitness al mayor
 void sort(Population &p)
 {
 	int c=0;
@@ -204,86 +233,97 @@ void printPop(Population p)
 
 void evolve(Population &p)
 {
+	// Muta cada pop es decir intercambia dos valores de cada linea
+	// y verifica si el fitness del modificado es mejor 
+	// y si es mejor reemplaza por esta nueva en la linea correspondiente
 	mutatePop(p);
 	//printPop(p);
 
+	// en offsptring se guarda cruces de lineas
 	Individual offspring[POP_SIZE/2];
 	Individual winners[TOURN_N];
 	Individual temp;
 	int g=0;
 	int c=0;
-	while (g<GENERATIONS)
+	
 	{
-
-		if (SELECTION_TYPE==0)
-		//FIXED RANK SELECTION
+		
+		
+		printf("thread number: %d and start g is %d\n",g, omp_get_thread_num());
+		while (g<GENERATIONS)
 		{
-			#	pragma omp for
-			for (int i=0; i<POP_SIZE/2; i++)
-			{
-				int flip = rand()%2;
-				if (flip==0) offspring[i]=crossoverInj (p.pop[i+1], p.pop[i]); else
-						offspring[i]=crossoverPm (p.pop[i], p.pop[i+1]);
-			}
-	        } else if (SELECTION_TYPE==1)
-		//TOURNAMENT SELECTION
-		{
-			#	pragma omp for
-			for (int i=0; i<POP_SIZE/2; i++)
-			{
 
-				for (int j=0; j<=TOURN_N; j++)
+			if (SELECTION_TYPE==0)
+			//FIXED RANK SELECTION
+			{
+				#	pragma omp parallel for num_threads(thread_count)
+				for (int i=0; i<POP_SIZE/2; i++)
 				{
-					winners[j]=p.pop[rand()%(POP_SIZE)];
+					int flip = rand()%2;
+					if (flip==0) offspring[i]=crossoverInj (p.pop[i+1], p.pop[i]); else
+							offspring[i]=crossoverPm (p.pop[i], p.pop[i+1]);
 				}
-				//sort winners
-				while (c<SORT_LIMIT)
+			} else if (SELECTION_TYPE==1)
+			//TOURNAMENT SELECTION
+			{
+				#	pragma omp parallel for num_threads(thread_count)
+				for (int i=0; i<POP_SIZE/2; i++)
 				{
-					for (int l=0; l<TOURN_N-1; l++)
+
+					for (int j=0; j<=TOURN_N; j++)
 					{
-						if (fitness(winners[l]) > fitness(winners[l+1]))
-							{
-								temp=winners[l];
-								winners[l]=winners[l+1];
-								winners[l+1]=temp;
-							}
+						winners[j]=p.pop[rand()%(POP_SIZE)];
 					}
-				c++;
+					//sort winners
+					while (c<SORT_LIMIT)
+					{
+						for (int l=0; l<TOURN_N-1; l++)
+						{
+							if (fitness(winners[l]) > fitness(winners[l+1]))
+								{
+									temp=winners[l];
+									winners[l]=winners[l+1];
+									winners[l+1]=temp;
+								}
+						}
+					c++;
+					}
+
+					int flip = rand()%2;
+					if (flip==0) offspring[i]=crossoverInj(winners[0], winners[1]); else
+							offspring[i]=crossoverPm (winners[1], winners[0]);
+
+
+
 				}
 
-				int flip = rand()%2;
-				if (flip==0) offspring[i]=crossoverInj(winners[0], winners[1]); else
-						offspring[i]=crossoverPm (winners[1], winners[0]);
-
-
-
 			}
+			sort(p);
 
+				#	pragma omp parallel for num_threads(thread_count)
+				for (int i=0; i<POP_SIZE/2; i++)
+				{
+					for (int j=0; j<POP_SIZE/2; j++)
+					{
+						if (fitness(offspring[i]) < fitness(p.pop[j]))
+						{
+							p.pop[j]=offspring[i];
+
+						}
+					}
+				}
+
+
+
+
+			//printInd(p.pop[0]);
+			cout << " | GEN: " << g << "  | F=" << fitness(p.pop[0]) << endl << endl;
+
+			g+= 1;
+			sort(p);
 		}
-		sort(p);
-
-			#	pragma omp for
-			for (int i=0; i<POP_SIZE/2; i++)
-			{
-				for (int j=0; j<POP_SIZE/2; j++)
-				{
-					if (fitness(offspring[i]) < fitness(p.pop[j]))
-					{
-						p.pop[j]=offspring[i];
-
-					}
-				}
-			}
-
-
-
-
-	printInd(p.pop[0]);
-	cout << " | GEN: " << g << "  | F=" << fitness(p.pop[0]) << endl << endl;
-
-	g++;
-	sort(p);
 	}
+	
 
 }
 
@@ -303,7 +343,7 @@ int exist_in_map(int x,int y){
 int main(int argc, char **argv)
 {
 	srand(time(NULL));
-	int thread_count=1;
+	
 	if (argc>1){
 		thread_count = strtol(argv[1],NULL,10);
 	}
@@ -316,13 +356,28 @@ int main(int argc, char **argv)
 		city.name = i;
 		map[i]=city;
 	}
-printf("CREATING MAP...\n");
+	printf("CREATING MAP...\n");
+	double startTime1 = omp_get_wtime();
+
+
+	
+
+
 	for(int i=0; i<CITIES; i++){
-		//do{
-			map[i].x = rand();
-			map[i].y = rand();
-		//}while (exist_in_map(city.x,city.y));
+
+		map[i].x = rand()%1000;
+		map[i].y = rand()%1000;
+
+		
 	}
+	
+	
+	double endTime1 = omp_get_wtime();
+
+	printf("TIME: %fs\n",(endTime1-startTime1));
+	
+	
+	
 
 	printf("MAP CREATED!!\n");
 
@@ -332,6 +387,14 @@ printf("CREATING MAP...\n");
 	int ins;
 	for (int i=1; i<=CITIES; i++) catalog[i]=i;
 
+	/*
+	Tenemos 10 lineas de 512 ciudades cada linea y se inicializa con -1 cada espacio o ciudad de la linea
+	[-1,-1,-1,-1,...., -1] (512 posciciones)
+	....
+	10
+	....
+	[-1,-1,-1,-1,...., -1] (512 posciciones)
+	*/
 	for (int k=0; k<POP_SIZE; k++)
 	{
 		for (int j=0; j<CITIES; j++) indi[k].route[j]=-1;
@@ -339,30 +402,53 @@ printf("CREATING MAP...\n");
 	}
 
 
+	/*
+	Cada Linea tenemos [-1,-1,-1, ... -1] 512 
+	rellenar numeros randoms de 0 a 512  en cada linea hasta terminar las 10 (POP_SIZE) lineas
+	*/
 	for (int k=0; k<POP_SIZE; k++)
 	{
-		while(inList (indi[k], -1))
+		while(inList (indi[k], -1)) 
 		{
-			printf("indi[%d].fitness: %d\n",k,indi[k].fitness);
+			//printf("indi[%d].fitness: %d\n",k,indi[k].fitness);
 			//cout << endl << "indi[k]: " << indi[k] << endl;
 			ins = (rand()%(CITIES+1));
-			printf("ins: %d\n",ins);
+			//printf("ins: %d\n",ins);
 			//cout << endl <<"ins: "<< ins << endl;
 			for (int j=0; j<CITIES; j++) if (!inList (indi[k], ins)) indi[k].route[getFreeIndex(indi[k])]=ins;
 		}
 
 	}
 
+	// copiamos los valores de indi en population.pop
 	for (int r=0; r<POP_SIZE; r++) population1.pop[r]=indi[r];
 
+	// ordena la lista
+	// Ordena entre los population el que tiene menor fitness al mayor
 	sort(population1);
 	//cout << "Initial sorted population: " << endl;
 	//printPop(population1);
-	cout << endl << "Starting evolution..." << endl << endl;
+	printf("AQUI");
+	for(int xd=0; xd< POP_SIZE-1; xd++){
+		printf("[");
+		for(int xk=0; xk< 20; xk++){
+			printf("%d,",population1.pop[xd].route[xk]);
+			
+		}
+		printf("] fitness: %d\n\n", fitness(population1.pop[xd]));
+	}
+	printf("AQUI");
+	printf("\n\nStarting evolution...\n\n");
 	printf("N= %d with p = %d\n",CITIES,thread_count);
 	double stime = omp_get_wtime();
-	#	pragma omp parallel num_threads(thread_count)
+
+	
+	
 	evolve(population1);
+	
+	
+	
+	
 	double etime = omp_get_wtime();
 	printf("Evolution ended\n");
 	printf("N= %d with p = %d\n",CITIES,thread_count);

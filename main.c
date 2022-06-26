@@ -274,11 +274,11 @@ void evolve(Population &p)
 
 
 
-	printInd(p.pop[0]);
-	cout << " | GEN: " << g << "  | F=" << fitness(p.pop[0]) << endl << endl;
+		printInd(p.pop[0]);
+		cout << " | GEN: " << g << "  | F=" << fitness(p.pop[0]) << endl << endl;
 
-	g++;
-	sort(p);
+		g++;
+		sort(p);
 	}
 
 }
